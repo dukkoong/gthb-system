@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GTH-B 통합 관리 시스템 v11.8</title>
+    <title>GTH-B 통합 관리 시스템 v11.9.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.ckeditor.com/ckeditor5/34.0.0/classic/ckeditor.js"></script>
@@ -125,11 +125,26 @@
 
             <section id="tab3" class="tab-content">
                 <div class="flex justify-between items-end mb-10 border-b-8 border-slate-900 pb-8"><h2 class="text-6xl font-black text-slate-900">GTH-B DASHBOARD</h2></div>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-10 mb-12">
-                    <div class="lg:col-span-2 bg-white p-12 rounded-[3.5rem] border-2 shadow-xl"><div class="h-[600px]"><canvas id="dashChart"></canvas></div></div>
-                    <div class="bg-slate-900 rounded-[3.5rem] p-12 flex flex-col justify-center items-center text-white shadow-2xl relative">
-                        <div class="absolute top-0 left-0 w-full h-3 bg-blue-500" id="dashTopBar"></div><div class="text-[9rem] font-black" id="dashTotalRate">0%</div>
+                
+                <div class="bg-slate-900 rounded-[3.5rem] p-10 text-white shadow-2xl mb-12 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-3 bg-blue-500" id="dashTopBar"></div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-2xl font-black italic uppercase text-blue-400">전체 보조금 합계</h3>
+                        <div class="text-right">
+                            <span class="text-slate-500 text-[10px] uppercase block mb-1">Total Execution Rate</span>
+                            <div class="text-7xl font-black text-white leading-none" id="dashTotalRate">0%</div>
+                        </div>
                     </div>
+                    <div class="grid grid-cols-4 gap-6 text-center border-t border-slate-800 pt-8">
+                        <div><p class="text-slate-500 text-xs mb-1">총 예산</p><p id="dash-total-budget" class="text-2xl font-bold">0</p></div>
+                        <div><p class="text-yellow-500 text-xs mb-1">금주 지출</p><p id="dash-total-week" class="text-2xl font-bold text-yellow-500">0</p></div>
+                        <div><p class="text-blue-400 text-xs mb-1">누계 지출</p><p id="dash-total-acc" class="text-2xl font-bold text-blue-400">0</p></div>
+                        <div><p class="text-slate-500 text-xs mb-1">총 잔액</p><p id="dash-total-remain" class="text-2xl font-bold">0</p></div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-2 bg-white p-12 rounded-[3.5rem] border-2 shadow-xl mb-12">
+                    <div class="h-[600px]"><canvas id="dashChart"></canvas></div>
                 </div>
                 <div id="summaryList" class="space-y-10"></div>
             </section>
@@ -151,7 +166,6 @@
             if(tabId === 'tab3') renderSummary();
         }
 
-        // --- [주간보고 파트] ---
         async function fetchHistoryList() {
             const { data } = await _supabase.from('reports').select('id, created_at').order('created_at', { ascending: false });
             const select = document.getElementById('reportHistory');
@@ -172,7 +186,6 @@
             if (data) { editorInstances[0].last.setData(data.content_last_week); editorInstances[0].this.setData(data.content_this_week); }
         }
 
-        // --- [보조금 파트: 덕현님 테이블 스키마 100% 준수] ---
         async function fetchBudgetHistoryList() {
             const { data } = await _supabase.from('budget_data').select('updated_at').order('updated_at', { ascending: false });
             const select = document.getElementById('budgetHistory');
@@ -192,12 +205,11 @@
                     item_name: row.dataset.item,
                     budget_value: parseInt(row.querySelector('.v-budget').value.replace(/,/g, "")) || 0,
                     acc_value: parseInt(row.querySelector('.v-acc').value.replace(/,/g, "")) || 0,
-                    updated_at: now // updated_at 컬럼 사용
+                    updated_at: now
                 });
             });
             const { error } = await _supabase.from('budget_data').insert(budgets);
             if (!error) { alert("수치가 저장되었습니다."); fetchBudgetHistoryList(); }
-            else { console.error(error); alert("저장 실패"); }
         }
 
         async function loadSpecificBudget(ts) {
@@ -215,7 +227,6 @@
             }
         }
 
-        // --- [공통 계산 및 UI] ---
         function syncCalc(input) {
             let val = input.value.replace(/[^0-9]/g, "");
             input.value = val ? Number(val).toLocaleString() : "";
@@ -244,15 +255,23 @@
             document.getElementById('local-total-remain').innerText = (lB-lA).toLocaleString();
             document.getElementById('local-total-rate').innerText = (lB > 0 ? ((lA/lB)*100).toFixed(1) : "0.0") + "%";
 
-            const fB = gB + lB; const fA = gA + lA;
+            const fB = gB + lB; const fW = gW + lW; const fA = gA + lA;
             const rate = fB > 0 ? ((fA / fB) * 100).toFixed(1) : "0.0";
             document.getElementById('final-total-budget').innerText = fB.toLocaleString();
-            document.getElementById('final-total-week').innerText = (gW+lW).toLocaleString();
+            document.getElementById('final-total-week').innerText = fW.toLocaleString();
             document.getElementById('final-total-acc').innerText = fA.toLocaleString();
             document.getElementById('final-total-remain').innerText = (fB-fA).toLocaleString();
             document.getElementById('final-total-rate').innerText = rate + "%";
-            document.getElementById('dashTotalRate').innerText = rate + "%";
-            if(document.getElementById('dashTopBar')) document.getElementById('dashTopBar').style.width = rate + "%";
+            
+            // 대시보드 합계 동기화 (v11.9.1 최적화된 ID 반영)
+            if(document.getElementById('dash-total-budget')) {
+                document.getElementById('dash-total-budget').innerText = fB.toLocaleString();
+                document.getElementById('dash-total-week').innerText = fW.toLocaleString();
+                document.getElementById('dash-total-acc').innerText = fA.toLocaleString();
+                document.getElementById('dash-total-remain').innerText = (fB-fA).toLocaleString();
+                document.getElementById('dashTotalRate').innerText = rate + "%";
+                document.getElementById('dashTopBar').style.width = rate + "%";
+            }
         }
 
         function renderSummary() {
@@ -269,67 +288,52 @@
                 options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 100 } } }
             });
 
-let sHtml = '';
-    editorInstances.forEach(ed => {
-        sHtml += `
-            <div class="grid grid-cols-2 gap-10 bg-white p-12 rounded-[3.5rem] border-2 shadow-2xl">
-                <div>
-                    <p class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-widest">Last Week (전주주요업무)</p>
-                    <div class="bg-slate-50 p-10 rounded-[2.5rem] border-l-[16px] border-slate-300 output-content font-medium text-lg leading-relaxed">
-                        ${ed.last.getData()}
-                    </div>
-                </div>
-                <div>
-                    <p class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-widest">This Week (금주업무계획)</p>
-                    <div class="bg-blue-50/30 p-10 rounded-[2.5rem] border-l-[16px] border-blue-600 output-content font-medium text-lg leading-relaxed">
-                        ${ed.this.getData()}
-                    </div>
-                </div>
-            </div>`;
-    });
-    document.getElementById('summaryList').innerHTML = sHtml || '<p class="text-center p-20 text-slate-300 font-bold">기록 없음</p>';
-}
-
-
-async function addAdvancedEditor() {
-    const id = Date.now();
-    document.getElementById('editorsContainer').insertAdjacentHTML('beforeend', `
-        <div class="editor-section bg-slate-50 p-10 rounded-[3rem] border border-slate-200 relative mt-10">
-            <button onclick="this.closest('.editor-section').remove()" class="absolute top-8 right-10 text-slate-300 hover:text-red-500 text-3xl">×</button>
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-10 mt-6">
-                <div>
-                    <label class="block mb-4 text-xl font-black text-slate-700">▶ 전주주요업무</label>
-                    <div id="editor-last-${id}"></div>
-                </div>
-                <div>
-                    <label class="block mb-4 text-xl font-black text-slate-700">▶ 금주업무계획</label>
-                    <div id="editor-this-${id}"></div>
-                </div>
-            </div>
-        </div>
-    `);
-    
-    const config = { toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'insertTable', 'undo', 'redo'] };
-    editorInstances.push({ 
-        last: await ClassicEditor.create(document.querySelector(`#editor-last-${id}`), config), 
-        this: await ClassicEditor.create(document.querySelector(`#editor-this-${id}`), config) 
-    });
-}
-
-window.onload = () => { addAdvancedEditor(); updateAllTotals(); fetchHistoryList(); fetchBudgetHistoryList(); };
-
-
-        /* async function addAdvancedEditor() {
-            const id = Date.now();
-            document.getElementById('editorsContainer').insertAdjacentHTML('beforeend', `<div class="editor-section bg-slate-50 p-10 rounded-[3rem] border border-slate-200 relative mt-10">
-                <button onclick="this.closest('.editor-section').remove()" class="absolute top-8 right-10 text-slate-300 hover:text-red-500 text-3xl">×</button>
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-10 mt-6"><div id="editor-last-${id}"></div><div id="editor-this-${id}"></div></div>
-            </div>`);
-            const config = { toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'insertTable', 'undo', 'redo'] };
-            editorInstances.push({ last: await ClassicEditor.create(document.querySelector(`#editor-last-${id}`), config), this: await ClassicEditor.create(document.querySelector(`#editor-this-${id}`), config) });
+            let sHtml = '';
+            editorInstances.forEach(ed => {
+                sHtml += `
+                    <div class="grid grid-cols-2 gap-10 bg-white p-12 rounded-[3.5rem] border-2 shadow-2xl mb-8">
+                        <div>
+                            <p class="text-sm font-bold text-slate-400 mb-4 uppercase tracking-widest">Last Week (전주주요업무)</p>
+                            <div class="bg-slate-50 p-10 rounded-[2.5rem] border-l-[16px] border-slate-300 output-content font-medium text-lg leading-relaxed">
+                                ${ed.last.getData()}
+                            </div>
+                        </div>
+                        <div>
+                            <p class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-widest">This Week (금주업무계획)</p>
+                            <div class="bg-blue-50/30 p-10 rounded-[2.5rem] border-l-[16px] border-blue-600 output-content font-medium text-lg leading-relaxed">
+                                ${ed.this.getData()}
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            document.getElementById('summaryList').innerHTML = sHtml || '<p class="text-center p-20 text-slate-300 font-bold">기록 없음</p>';
         }
 
-        window.onload = () => { addAdvancedEditor(); updateAllTotals(); fetchHistoryList(); fetchBudgetHistoryList(); };*/
+        async function addAdvancedEditor() {
+            const id = Date.now();
+            document.getElementById('editorsContainer').insertAdjacentHTML('beforeend', `
+                <div class="editor-section bg-slate-50 p-10 rounded-[3rem] border border-slate-200 relative mt-10">
+                    <button onclick="this.closest('.editor-section').remove()" class="absolute top-8 right-10 text-slate-300 hover:text-red-500 text-3xl">×</button>
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-10 mt-6">
+                        <div>
+                            <label class="block mb-4 text-xl font-black text-slate-700">▶ 전주주요업무</label>
+                            <div id="editor-last-${id}"></div>
+                        </div>
+                        <div>
+                            <label class="block mb-4 text-xl font-black text-slate-700">▶ 금주업무계획</label>
+                            <div id="editor-this-${id}"></div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            const config = { toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'insertTable', 'undo', 'redo'] };
+            editorInstances.push({ 
+                last: await ClassicEditor.create(document.querySelector(`#editor-last-${id}`), config), 
+                this: await ClassicEditor.create(document.querySelector(`#editor-this-${id}`), config) 
+            });
+        }
+
+        window.onload = () => { addAdvancedEditor(); updateAllTotals(); fetchHistoryList(); fetchBudgetHistoryList(); };
     </script>
 </body>
 </html>
