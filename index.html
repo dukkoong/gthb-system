@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTH-B 통합 관리 시스템 v11.8</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.ckeditor.com/ckeditor5/34.0.0/classic/ckeditor.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f1f5f9; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .active-tab { border-bottom: 4px solid #2563eb; color: #2563eb; background-color: #0f172a; }
+        .ck-editor__editable { min-height: 250px; max-height: 400px; }
+        .output-content table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 0.9rem; }
+        .output-content table td, .output-content table th { border: 1px solid #ddd; padding: 8px; }
+        .budget-input { width: 100%; text-align: right; padding: 4px; border-radius: 4px; background: transparent; transition: all 0.2s; font-variant-numeric: tabular-nums; }
+        .budget-input:focus { background: white; outline: 2px solid #2563eb; }
+        .btn-action { @apply px-6 py-2 rounded-xl font-bold transition-all shadow-md active:scale-95 hover:brightness-95; }
+    </style>
+</head>
+<body class="p-2 md:p-6">
+    <div class="max-w-[1600px] mx-auto bg-white shadow-2xl rounded-[3rem] overflow-hidden border border-slate-200">
+        
+        <nav class="flex bg-slate-900 text-slate-400 font-bold">
+            <button onclick="switchTab('tab1')" id="btn-tab1" class="flex-1 py-6 active-tab text-lg">1. 주간보고</button>
+            <button onclick="switchTab('tab2')" id="btn-tab2" class="flex-1 py-6">2. 보조금 현황 관리</button>
+            <button onclick="switchTab('tab3')" id="btn-tab3" class="flex-1 py-6 text-blue-400">3. 종합 대시보드</button>
+        </nav>
+
+        <div class="p-10">
+            <section id="tab1" class="tab-content active">
+                <div class="flex justify-between items-center mb-8 bg-slate-50 p-6 rounded-[2rem] border border-slate-200">
+                    <div>
+                        <h2 class="text-3xl font-black text-slate-800 tracking-tighter mb-2">주간보고</h2>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs font-bold text-slate-500 uppercase">보고서 로드:</span>
+                            <select id="reportHistory" onchange="loadSpecificReport(this.value)" class="bg-white border border-slate-300 rounded-lg px-3 py-1 text-sm font-bold outline-none"></select>
+                            <button onclick="fetchHistoryList()" class="text-blue-600 text-xs font-bold">🔄 갱신</button>
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <button onclick="addAdvancedEditor()" class="btn-action bg-white border border-slate-200 text-slate-600">+ 섹션 추가</button>
+                        <button onclick="saveReportOnly()" class="btn-action bg-blue-600 text-white">💾 보고서만 저장</button>
+                    </div>
+                </div>
+                <div id="editorsContainer" class="space-y-12"></div>
+            </section>
+
+            <section id="tab2" class="tab-content">
+                <div class="flex justify-between items-center mb-8 bg-slate-50 p-6 rounded-[2rem] border border-slate-200">
+                    <div>
+                        <h2 class="text-3xl font-black text-slate-800">💰 보조금 현황 관리</h2>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs font-bold text-slate-500 uppercase">수치 히스토리:</span>
+                            <select id="budgetHistory" onchange="loadSpecificBudget(this.value)" class="bg-white border border-slate-300 rounded-lg px-3 py-1 text-sm font-bold outline-none"></select>
+                            <button onclick="fetchBudgetHistoryList()" class="text-blue-600 text-xs font-bold">🔄 갱신</button>
+                        </div>
+                    </div>
+                    <button onclick="saveBudgetOnly()" class="btn-action bg-emerald-600 text-white shadow-emerald-200">📊 보조금만 저장</button>
+                </div>
+
+                <div class="overflow-x-auto space-y-10">
+                    <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="bg-slate-50 px-8 py-4 border-b font-bold text-slate-700">■ 국고보조금 현황</div>
+                        <table class="w-full text-sm text-center border-collapse">
+                            <thead>
+                                <tr class="bg-slate-100 text-slate-700 font-bold">
+                                    <th class="p-4 border w-24">구분</th><th class="p-4 border w-32">항</th><th class="p-4 border">예산액</th><th class="p-4 border text-blue-600">금주지출액</th><th class="p-4 border">지출누계액</th><th class="p-4 border">잔액</th><th class="p-4 border">집행률</th><th class="p-4 border w-1/4">지출상세내역</th>
+                                </tr>
+                            </thead>
+                            <tbody id="govTableBody">
+                                <script>
+                                    const govItems = ["인건비", "운영비", "여비", "업무추진비", "유형자산", "무형자산", "건설비", "민간이전"];
+                                    const govBuds = ["924,732", "3,167,868", "16,000", "5,000", "500,000", "100,000", "0", "1,000,000"];
+                                    const govAs = ["221,914", "136,809", "326", "450", "0", "0", "0", "0"];
+                                    govItems.forEach((cat, i) => {
+                                        document.write(`<tr class="budget-row" data-group="국고" data-item="${cat}">${i===0 ? '<td class="p-4 border font-bold bg-white" rowspan="8">국고</td>' : ''}<td class="p-4 border bg-slate-50 font-bold val-label">${cat}</td><td class="p-2 border"><input type="text" class="budget-input v-budget" value="${govBuds[i]}" oninput="syncCalc(this)"></td><td class="p-2 border"><input type="text" class="budget-input v-week bg-blue-50 font-bold" value="0" oninput="syncCalc(this)"></td><td class="p-2 border"><input type="text" class="budget-input v-acc" value="${govAs[i]}" oninput="syncCalc(this)"></td><td class="p-4 border text-right font-medium v-remain">0</td><td class="p-4 border font-bold text-blue-600 v-rate">0%</td><td class="p-2 border"><input type="text" class="w-full p-2 bg-slate-50 rounded text-left v-desc" value="-"></td></tr>`);
+                                    });
+                                </script>
+                            </tbody>
+                            <tfoot class="bg-slate-800 text-white font-bold">
+                                <tr><td class="p-4 border text-center" colspan="2">국고 합계 (A)</td><td class="p-4 border text-right" id="gov-total-budget">0</td><td class="p-4 border text-right text-yellow-400" id="gov-total-week">0</td><td class="p-4 border text-right" id="gov-total-acc">0</td><td class="p-4 border text-right" id="gov-total-remain">0</td><td class="p-4 border text-center text-yellow-400" id="gov-total-rate">0%</td><td class="p-4 border">-</td></tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="bg-blue-50 px-8 py-4 border-b font-bold text-blue-800">■ 지방비보조금 현황</div>
+                        <table class="w-full text-sm text-center border-collapse">
+                            <thead><tr class="bg-slate-100 text-slate-700 font-bold"><th class="p-4 border w-24">구분</th><th class="p-4 border w-32">항</th><th class="p-4 border">예산액</th><th class="p-4 border text-blue-600">금주지출액</th><th class="p-4 border">지출누계액</th><th class="p-4 border">잔액</th><th class="p-4 border">집행률</th><th class="p-4 border w-1/4">지출상세내역</th></tr></thead>
+                            <tbody id="localTableBody">
+                                <script>
+                                    const localItems = ["사업운영비", "여비", "민간이전"];
+                                    const localBuds = ["300,000", "10,000", "500,000"];
+                                    const localAs = ["45,000", "500", "50,000"];
+                                    localItems.forEach((cat, i) => {
+                                        document.write(`<tr class="budget-row" data-group="지방비" data-item="${cat}">${i===0 ? '<td class="p-4 border font-bold bg-white" rowspan="3">지방비</td>' : ''}<td class="p-4 border bg-slate-50 font-bold val-label">${cat}</td><td class="p-2 border"><input type="text" class="budget-input v-budget" value="${localBuds[i]}" oninput="syncCalc(this)"></td><td class="p-2 border"><input type="text" class="budget-input v-week bg-blue-50 font-bold" value="0" oninput="syncCalc(this)"></td><td class="p-2 border"><input type="text" class="budget-input v-acc" value="${localAs[i]}" oninput="syncCalc(this)"></td><td class="p-4 border text-right font-medium v-remain">0</td><td class="p-4 border font-bold text-blue-600 v-rate">0%</td><td class="p-2 border"><input type="text" class="w-full p-2 bg-slate-50 rounded text-left v-desc" value="-"></td></tr>`);
+                                    });
+                                </script>
+                            </tbody>
+                            <tfoot class="bg-blue-900 text-white font-bold">
+                                <tr><td class="p-4 border text-center" colspan="2">지방비 합계 (B)</td><td class="p-4 border text-right" id="local-total-budget">0</td><td class="p-4 border text-right text-yellow-400" id="local-total-week">0</td><td class="p-4 border text-right" id="local-total-acc">0</td><td class="p-4 border text-right" id="local-total-remain">0</td><td class="p-4 border text-center text-yellow-400" id="local-total-rate">0%</td><td class="p-4 border">-</td></tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="bg-slate-900 rounded-[2.5rem] p-10 text-white shadow-2xl border-4 border-blue-500/30">
+                        <div class="flex justify-between items-center text-right">
+                            <h3 class="text-2xl font-black italic underline underline-offset-8 decoration-blue-500">전체 보조금 합계 (A + B)</h3>
+                            <div><span class="text-slate-400 text-sm block">Total Execution Rate</span><span id="final-total-rate" class="text-7xl font-black text-blue-400">0%</span></div>
+                        </div>
+                        <div class="grid grid-cols-4 gap-6 mt-8 border-t border-slate-700 pt-8 text-center">
+                            <div><p class="text-slate-500 text-xs mb-1">총 예산</p><p id="final-total-budget" class="text-xl font-bold">0</p></div>
+                            <div><p class="text-yellow-500 text-xs mb-1">금주 지출</p><p id="final-total-week" class="text-xl font-bold text-yellow-500">0</p></div>
+                            <div><p class="text-blue-400 text-xs mb-1">누계 지출</p><p id="final-total-acc" class="text-xl font-bold text-blue-400">0</p></div>
+                            <div><p class="text-slate-500 text-xs mb-1">총 잔액</p><p id="final-total-remain" class="text-xl font-bold">0</p></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab3" class="tab-content">
+                <div class="flex justify-between items-end mb-10 border-b-8 border-slate-900 pb-8"><h2 class="text-6xl font-black text-slate-900">GTH-B DASHBOARD</h2></div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-10 mb-12">
+                    <div class="lg:col-span-2 bg-white p-12 rounded-[3.5rem] border-2 shadow-xl"><div class="h-[600px]"><canvas id="dashChart"></canvas></div></div>
+                    <div class="bg-slate-900 rounded-[3.5rem] p-12 flex flex-col justify-center items-center text-white shadow-2xl relative">
+                        <div class="absolute top-0 left-0 w-full h-3 bg-blue-500" id="dashTopBar"></div><div class="text-[9rem] font-black" id="dashTotalRate">0%</div>
+                    </div>
+                </div>
+                <div id="summaryList" class="space-y-10"></div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://tjfjvtyiezuvvzzouqjy.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRqZmp2dHlpZXp1dnZ6em91cWp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwNDc0NzIsImV4cCI6MjA5MTYyMzQ3Mn0.QlxYsDzG-7ODUe3yJnFw28LyZ6dpc4ZFuup2fqu8kDc';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let myChart; const editorInstances = []; 
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active-tab'));
+            document.getElementById(tabId).classList.add('active');
+            document.getElementById('btn-' + tabId).classList.add('active-tab');
+            if(tabId === 'tab3') renderSummary();
+        }
+
+        // --- [주간보고 파트] ---
+        async function fetchHistoryList() {
+            const { data } = await _supabase.from('reports').select('id, created_at').order('created_at', { ascending: false });
+            const select = document.getElementById('reportHistory');
+            select.innerHTML = '<option value="">선택하세요</option>';
+            if (data) data.forEach(item => select.innerHTML += `<option value="${item.id}">${new Date(item.created_at).toLocaleString()}</option>`);
+        }
+
+        async function saveReportOnly() {
+            if(editorInstances.length === 0) return;
+            const content = { content_last_week: editorInstances[0].last.getData(), content_this_week: editorInstances[0].this.getData() };
+            const { error } = await _supabase.from('reports').insert([content]);
+            if (!error) { alert("보고서가 저장되었습니다."); fetchHistoryList(); }
+        }
+
+        async function loadSpecificReport(id) {
+            if (!id) return;
+            const { data } = await _supabase.from('reports').select('*').eq('id', id).single();
+            if (data) { editorInstances[0].last.setData(data.content_last_week); editorInstances[0].this.setData(data.content_this_week); }
+        }
+
+        // --- [보조금 파트: 덕현님 테이블 스키마 100% 준수] ---
+        async function fetchBudgetHistoryList() {
+            const { data } = await _supabase.from('budget_data').select('updated_at').order('updated_at', { ascending: false });
+            const select = document.getElementById('budgetHistory');
+            select.innerHTML = '<option value="">선택하세요</option>';
+            if (data) {
+                const unique = [...new Set(data.map(d => d.updated_at))];
+                unique.forEach(t => select.innerHTML += `<option value="${t}">${new Date(t).toLocaleString()}</option>`);
+            }
+        }
+
+        async function saveBudgetOnly() {
+            const now = new Date().toISOString();
+            const budgets = [];
+            document.querySelectorAll('.budget-row').forEach(row => {
+                budgets.push({
+                    category: row.dataset.group,
+                    item_name: row.dataset.item,
+                    budget_value: parseInt(row.querySelector('.v-budget').value.replace(/,/g, "")) || 0,
+                    acc_value: parseInt(row.querySelector('.v-acc').value.replace(/,/g, "")) || 0,
+                    updated_at: now // updated_at 컬럼 사용
+                });
+            });
+            const { error } = await _supabase.from('budget_data').insert(budgets);
+            if (!error) { alert("수치가 저장되었습니다."); fetchBudgetHistoryList(); }
+            else { console.error(error); alert("저장 실패"); }
+        }
+
+        async function loadSpecificBudget(ts) {
+            if (!ts) return;
+            const { data } = await _supabase.from('budget_data').select('*').eq('updated_at', ts);
+            if (data) {
+                data.forEach(d => {
+                    const row = document.querySelector(`.budget-row[data-group="${d.category}"][data-item="${d.item_name}"]`);
+                    if (row) {
+                        row.querySelector('.v-budget').value = d.budget_value.toLocaleString();
+                        row.querySelector('.v-acc').value = d.acc_value.toLocaleString();
+                    }
+                });
+                updateAllTotals();
+            }
+        }
+
+        // --- [공통 계산 및 UI] ---
+        function syncCalc(input) {
+            let val = input.value.replace(/[^0-9]/g, "");
+            input.value = val ? Number(val).toLocaleString() : "";
+            updateAllTotals();
+        }
+
+        function updateAllTotals() {
+            let gB = 0, gW = 0, gA = 0, lB = 0, lW = 0, lA = 0;
+            document.querySelectorAll('.budget-row').forEach(row => {
+                const b = parseInt(row.querySelector('.v-budget').value.replace(/,/g, "")) || 0;
+                const w = parseInt(row.querySelector('.v-week').value.replace(/,/g, "")) || 0;
+                const a = parseInt(row.querySelector('.v-acc').value.replace(/,/g, "")) || 0;
+                row.querySelector('.v-remain').innerText = (b - a).toLocaleString();
+                row.querySelector('.v-rate').innerText = (b > 0 ? ((a / b) * 100).toFixed(1) : "0.0") + "%";
+                if(row.dataset.group === "국고") { gB += b; gW += w; gA += a; } else { lB += b; lW += w; lA += a; }
+            });
+
+            document.getElementById('gov-total-budget').innerText = gB.toLocaleString();
+            document.getElementById('gov-total-week').innerText = gW.toLocaleString();
+            document.getElementById('gov-total-acc').innerText = gA.toLocaleString();
+            document.getElementById('gov-total-remain').innerText = (gB-gA).toLocaleString();
+            document.getElementById('gov-total-rate').innerText = (gB > 0 ? ((gA/gB)*100).toFixed(1) : "0.0") + "%";
+            document.getElementById('local-total-budget').innerText = lB.toLocaleString();
+            document.getElementById('local-total-week').innerText = lW.toLocaleString();
+            document.getElementById('local-total-acc').innerText = lA.toLocaleString();
+            document.getElementById('local-total-remain').innerText = (lB-lA).toLocaleString();
+            document.getElementById('local-total-rate').innerText = (lB > 0 ? ((lA/lB)*100).toFixed(1) : "0.0") + "%";
+
+            const fB = gB + lB; const fA = gA + lA;
+            const rate = fB > 0 ? ((fA / fB) * 100).toFixed(1) : "0.0";
+            document.getElementById('final-total-budget').innerText = fB.toLocaleString();
+            document.getElementById('final-total-week').innerText = (gW+lW).toLocaleString();
+            document.getElementById('final-total-acc').innerText = fA.toLocaleString();
+            document.getElementById('final-total-remain').innerText = (fB-fA).toLocaleString();
+            document.getElementById('final-total-rate').innerText = rate + "%";
+            document.getElementById('dashTotalRate').innerText = rate + "%";
+            if(document.getElementById('dashTopBar')) document.getElementById('dashTopBar').style.width = rate + "%";
+        }
+
+        function renderSummary() {
+            const labels = []; const data = []; const colors = [];
+            document.querySelectorAll('.budget-row').forEach(row => {
+                labels.push(`[${row.dataset.group}] ${row.dataset.item}`);
+                data.push(parseFloat(row.querySelector('.v-rate').innerText));
+                colors.push(row.dataset.group === "국고" ? "#2563eb" : "#10b981");
+            });
+            if (myChart) myChart.destroy();
+            myChart = new Chart(document.getElementById('dashChart').getContext('2d'), {
+                type: 'bar',
+                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 10, barThickness: 15 }] },
+                options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 100 } } }
+            });
+
+let sHtml = '';
+    editorInstances.forEach(ed => {
+        sHtml += `
+            <div class="grid grid-cols-2 gap-10 bg-white p-12 rounded-[3.5rem] border-2 shadow-2xl">
+                <div>
+                    <p class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-widest">Last Week (전주주요업무)</p>
+                    <div class="bg-slate-50 p-10 rounded-[2.5rem] border-l-[16px] border-slate-300 output-content font-medium text-lg leading-relaxed">
+                        ${ed.last.getData()}
+                    </div>
+                </div>
+                <div>
+                    <p class="text-sm font-bold text-blue-400 mb-4 uppercase tracking-widest">This Week (금주업무계획)</p>
+                    <div class="bg-blue-50/30 p-10 rounded-[2.5rem] border-l-[16px] border-blue-600 output-content font-medium text-lg leading-relaxed">
+                        ${ed.this.getData()}
+                    </div>
+                </div>
+            </div>`;
+    });
+    document.getElementById('summaryList').innerHTML = sHtml || '<p class="text-center p-20 text-slate-300 font-bold">기록 없음</p>';
+}
+
+
+async function addAdvancedEditor() {
+    const id = Date.now();
+    document.getElementById('editorsContainer').insertAdjacentHTML('beforeend', `
+        <div class="editor-section bg-slate-50 p-10 rounded-[3rem] border border-slate-200 relative mt-10">
+            <button onclick="this.closest('.editor-section').remove()" class="absolute top-8 right-10 text-slate-300 hover:text-red-500 text-3xl">×</button>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-10 mt-6">
+                <div>
+                    <label class="block mb-4 text-xl font-black text-slate-700">▶ 전주주요업무</label>
+                    <div id="editor-last-${id}"></div>
+                </div>
+                <div>
+                    <label class="block mb-4 text-xl font-black text-slate-700">▶ 금주업무계획</label>
+                    <div id="editor-this-${id}"></div>
+                </div>
+            </div>
+        </div>
+    `);
+    
+    const config = { toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'insertTable', 'undo', 'redo'] };
+    editorInstances.push({ 
+        last: await ClassicEditor.create(document.querySelector(`#editor-last-${id}`), config), 
+        this: await ClassicEditor.create(document.querySelector(`#editor-this-${id}`), config) 
+    });
+}
+
+window.onload = () => { addAdvancedEditor(); updateAllTotals(); fetchHistoryList(); fetchBudgetHistoryList(); };
+
+
+        /* async function addAdvancedEditor() {
+            const id = Date.now();
+            document.getElementById('editorsContainer').insertAdjacentHTML('beforeend', `<div class="editor-section bg-slate-50 p-10 rounded-[3rem] border border-slate-200 relative mt-10">
+                <button onclick="this.closest('.editor-section').remove()" class="absolute top-8 right-10 text-slate-300 hover:text-red-500 text-3xl">×</button>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-10 mt-6"><div id="editor-last-${id}"></div><div id="editor-this-${id}"></div></div>
+            </div>`);
+            const config = { toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'insertTable', 'undo', 'redo'] };
+            editorInstances.push({ last: await ClassicEditor.create(document.querySelector(`#editor-last-${id}`), config), this: await ClassicEditor.create(document.querySelector(`#editor-this-${id}`), config) });
+        }
+
+        window.onload = () => { addAdvancedEditor(); updateAllTotals(); fetchHistoryList(); fetchBudgetHistoryList(); };*/
+    </script>
+</body>
+</html>
